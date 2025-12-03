@@ -105,7 +105,7 @@
     );
     const SettingsIcon = ({ className }) => (
       <svg className={className} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 .54 1.81v.65a2 2 0 0 1-.54 1.81l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73-.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l-.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-.54-1.81v-.65a2 2 0 0 1 .54 1.81l.15.1a2 2 0 0 0 .73 2.73l.22.38a2 2 0 0 0 2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
+        <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 .54 1.81v.65a2 2 0 0 1-.54 1.81l-.15.1a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l-.22-.38a2 2 0 0 0-.73-2.73l-.15-.1a2 2 0 0 1-.54-1.81v-.65a2 2 0 0 1 .54 1.81l.15.1a2 2 0 0 0 .73 2.73l.22.38a2 2 0 0 0 2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"></path>
         <circle cx="12" cy="12" r="3"></circle>
       </svg>
     );
@@ -969,10 +969,26 @@
           return [];
         }
 
+        // Helper សម្រាប់បំប្លែងឈ្មោះក្រុមឱ្យដូចគ្នា (Normalize)
+        // លុបដកឃ្លា និង ប្តូរលេខខ្មែរទៅឡាតាំង ដើម្បីងាយស្រួលផ្ទៀងផ្ទាត់
+        const normalize = (str) => {
+           if (!str) return '';
+           return str.replace(/\s+/g, '') // លុបដកឃ្លាទាំងអស់
+                     .replace(/[០-៩]/g, d => "0123456789"['០១២៣៤៥៦៧៨៩'.indexOf(d)]) // ប្តូរលេខខ្មែរ -> ឡាតាំង
+                     .toLowerCase();
+        };
+
         let scheduledToday = Object.values(schedules).filter(emp => {
-          // 1. ត្រងតាមក្រុម (Group Filter) - ឥឡូវប្រើ adminGroupFilter ដែលបាន Hardcode
-          if (adminGroupFilter !== 'ALL' && emp['GROUP'] !== adminGroupFilter) {
-            return false;
+          // 1. ត្រងតាមផ្នែក (Department) - ជំនួស Group
+          if (adminGroupFilter !== 'ALL') {
+             // ប្រើ DEPT ជំនួស GROUP
+             const empDept = normalize(emp['DEPT']);
+             const filterVal = normalize(adminGroupFilter);
+             
+             // [UPDATED] ប្រៀបធៀបដោយប្រើ normalize លើ DEPT ជំនួស GROUP
+             if (!empDept.includes(filterVal) && !filterVal.includes(empDept)) {
+                 return false;
+             }
           }
           
           const shift = getEmployeeShift(emp);
@@ -989,7 +1005,8 @@
           // 3. ត្រងតាមវេនត្រឹមត្រូវ (Valid Shifts)
           return VALID_SHIFTS.some(validShift => {
             const upperValidShift = validShift.toUpperCase();
-            return upperShift === upperValidShift; 
+            // [UPDATED] ប្រើ includes ជំនួស === ដើម្បីឱ្យកាន់តែធូររលុង
+            return upperShift.includes(upperValidShift) || upperValidShift.includes(upperShift); 
           });
         });
         
@@ -1015,7 +1032,7 @@
         scheduledToday.sort((a, b) => (a['NAME'] || '').localeCompare(b['NAME'] || '')); 
         
         return scheduledToday; 
-      }, [schedules, shiftKey, loadingSchedules, adminGroupFilter, adminShiftFilter, searchTerm, VALID_SHIFTS, todayRecordsMap]); // (កែប្រែ)
+      }, [schedules, shiftKey, loadingSchedules, adminGroupFilter, adminShiftFilter, searchTerm, VALID_SHIFTS, todayRecordsMap]); 
 
       const formattedTitle = formatKhmerDate(selectedDate);
       
