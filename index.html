@@ -74,10 +74,51 @@
     .glass-theme input[type="date"]::-webkit-calendar-picker-indicator {
         filter: invert(1); /* Make it white for glass theme */
     }
+
+    /* --- MOBILE ONLY ENFORCEMENT --- */
+    #mobile-only-message {
+        display: none;
+    }
+    
+    /* ប្រសិនបើអេក្រង់ធំជាង 768px (Tablet/Desktop) ឲ្យបង្ហាញសារព្រមាន និងលាក់ App */
+    @media (min-width: 768px) {
+        #root {
+            display: none !important;
+        }
+        #mobile-only-message {
+            display: flex !important;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            background-color: #f3f4f6;
+            color: #1f2937;
+            text-align: center;
+            padding: 2rem;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 9999;
+        }
+    }
   </style>
 </head>
 <body class="bg-gray-100">
   
+  <!-- សារបង្ហាញសម្រាប់អេក្រង់ធំ (Computer/Tablet) -->
+  <div id="mobile-only-message">
+      <div class="mb-6 bg-white p-4 rounded-full shadow-lg">
+          <svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="text-blue-500">
+              <rect x="5" y="2" width="14" height="20" rx="2" ry="2"></rect>
+              <line x1="12" y1="18" x2="12.01" y2="18"></line>
+          </svg>
+      </div>
+      <h1 class="text-2xl font-bold mb-3 text-gray-800">សូមអធ្យាស្រ័យ</h1>
+      <p class="text-lg text-gray-600 max-w-md">កម្មវិធីនេះត្រូវបានរចនាឡើងសម្រាប់ប្រើប្រាស់នៅលើ <b>ទូរស័ព្ទដៃ</b> ប៉ុណ្ណោះ។</p>
+      <p class="text-gray-500 mt-2 text-sm">សូមបើកកម្មវិធីនេះនៅលើទូរស័ព្ទរបស់អ្នក ដើម្បីបន្ត។</p>
+  </div>
+
   <!-- နေရာដែល React នឹង Render កម្មវិធីចូល -->
   <div id="root"></div>
 
