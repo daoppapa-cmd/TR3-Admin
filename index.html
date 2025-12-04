@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CheckMe Attendance App</title>
   
+  
   <!-- 1. ផ្ទុក Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -680,7 +681,23 @@
       const [selectedDate, setSelectedDate] = useState_Component(getLocalDate());
 
       const stats = useMemo_Component(() => {
-        const todayRecords = records.filter(r => r.dateId === selectedDate);
+        // [MODIFIED] បន្ថែមការត្រង ផ្នែកការងារ "Training_ជំនាន់២"
+        const normalize = (str) => {
+           if (!str) return '';
+           return str.replace(/\s+/g, '') 
+                     .replace(/[០-៩]/g, d => "0123456789"['០១២៣៤៥៦៧៨៩'.indexOf(d)]) 
+                     .toLowerCase();
+        };
+        
+        const targetDept = normalize('Training_ជំនាន់២');
+        
+        // ត្រងយកតែ records ដែលមាន department ត្រូវគ្នា
+        const deptRecords = records.filter(r => {
+            const rDept = normalize(r.department);
+            return rDept.includes(targetDept) || targetDept.includes(rDept);
+        });
+
+        const todayRecords = deptRecords.filter(r => r.dateId === selectedDate);
         
         const leaveRecords = [];
         const attendanceRecords = [];
@@ -1426,8 +1443,20 @@
       const filteredRecords = useMemo(() => {
         let records = attendanceRecords;
         
-        // [NEW] ត្រងយកតែ Group "Training_ជំនាន់២" ស្វ័យប្រវត្តិ
-        records = records.filter(record => record.group === 'Training_ជំនាន់២');
+        // Helper សម្រាប់បំប្លែងឈ្មោះអោយដូចគ្នា (Normalize)
+        const normalize = (str) => {
+           if (!str) return '';
+           return str.replace(/\s+/g, '') // លុបដកឃ្លា
+                     .replace(/[០-៩]/g, d => "0123456789"['០១២៣៤៥៦៧៨៩'.indexOf(d)]) // លេខខ្មែរ -> ឡាតាំង
+                     .toLowerCase();
+        };
+
+        // [MODIFIED] ត្រងយកតែ ផ្នែកការងារ (Department) "Training_ជំនាន់២" ស្វ័យប្រវត្តិ
+        const targetDept = normalize('Training_ជំនាន់២');
+        records = records.filter(record => {
+            const recordDept = normalize(record.department);
+            return recordDept.includes(targetDept) || targetDept.includes(recordDept);
+        });
 
         if (filterToday) {
           const today = getLocalDate();
