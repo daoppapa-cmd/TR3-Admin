@@ -5,7 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>CheckMe Attendance App</title>
   
-  
   <!-- 1. ផ្ទុក Tailwind CSS -->
   <script src="https://cdn.tailwindcss.com"></script>
   
@@ -282,6 +281,20 @@
       }
       return 'LEAVE';
     };
+    
+    // Helper function to calculate minutes for sorting time strings like "08:00 AM"
+    const getTimeValue = (timeStr) => {
+        if (!timeStr || !/^\d{2}:\d{2}\s(AM|PM)$/i.test(timeStr)) return -1;
+        const [time, modifier] = timeStr.split(' ');
+        let [hours, minutes] = time.split(':');
+        hours = parseInt(hours, 10);
+        minutes = parseInt(minutes, 10);
+        
+        if (hours === 12) hours = 0;
+        if (modifier === 'PM') hours += 12;
+        
+        return hours * 60 + minutes;
+    };
 
 
     // --- ៤. Components សម្រាប់ UI ---
@@ -537,12 +550,58 @@
     // Component ទំព័រ Home (AttendanceList)
     const AttendanceList = ({ records, loading, error, entryMode, onRecordClick, currentPage, setCurrentPage, theme }) => {
       
+      const [searchQuery, setSearchQuery] = useState_Component('');
+
+      const processedRecords = useMemo_Component(() => {
+        let data = [...records];
+
+        // 1. Search Logic
+        if (searchQuery.trim() !== '') {
+            const lowerQuery = searchQuery.toLowerCase();
+            data = data.filter(record => 
+                (record.employeeName && record.employeeName.toLowerCase().includes(lowerQuery)) ||
+                (record.employeeId && String(record.employeeId).toLowerCase().includes(lowerQuery))
+            );
+        }
+
+        // 2. Sort Logic: Check In Latest to Top
+        // We compare full date+time string for accurate sorting
+        data.sort((a, b) => {
+            // First check if they have checkIn time
+            const hasCheckInA = checkEntryType(a.checkIn) === 'TIME';
+            const hasCheckInB = checkEntryType(b.checkIn) === 'TIME';
+
+            if (hasCheckInA && !hasCheckInB) return -1; // A comes first
+            if (!hasCheckInA && hasCheckInB) return 1;  // B comes first
+            if (!hasCheckInA && !hasCheckInB) return 0; // Keep order
+
+            // Both have check-in, compare actual time value (including date if possible, but here we assume filtered by date mainly or just time)
+            // Since we might have different dates in the list, comparing just time might be wrong if we want absolute latest.
+            // But 'records' comes sorted by Date Descending already.
+            // If dates are same, we compare time.
+            if (a.dateId !== b.dateId) {
+                return b.dateId.localeCompare(a.dateId); // Fallback to date sort
+            }
+            
+            const timeA = getTimeValue(a.checkIn);
+            const timeB = getTimeValue(b.checkIn);
+            return timeB - timeA; // Descending (Larger/Later time first)
+        });
+
+        return data;
+      }, [records, searchQuery]);
+
       const ITEMS_PER_PAGE = 12;
-      const totalPages = Math.ceil(records.length / ITEMS_PER_PAGE);
+      const totalPages = Math.ceil(processedRecords.length / ITEMS_PER_PAGE);
       const indexOfLastItem = currentPage * ITEMS_PER_PAGE;
       const indexOfFirstItem = indexOfLastItem - ITEMS_PER_PAGE;
-      const currentItems = records.slice(indexOfFirstItem, indexOfLastItem);
+      const currentItems = processedRecords.slice(indexOfFirstItem, indexOfLastItem);
       
+      // Reset page when search changes
+      useEffect_Component(() => {
+          setCurrentPage(1);
+      }, [searchQuery]);
+
       const nextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
       const prevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
       
@@ -560,6 +619,7 @@
       const bgIconMuted = isGlass ? 'bg-gray-500/20' : 'bg-gray-100';
       const borderCard = isGlass ? 'border-t border-white/10' : 'border-t border-gray-100';
       const ringClass = isGlass ? 'hover:ring-white/50' : 'hover:ring-blue-500';
+      const inputBg = isGlass ? 'bg-white/20 border-white/30 text-white placeholder-gray-300' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400';
 
       if (loading) {
         return <div className="flex justify-center items-center h-full p-6">កំពុងទាញទិន្នន័យ...</div>;
@@ -567,88 +627,95 @@
       if (error) {
         return <div className="p-4"><div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded relative" role="alert"><strong className="font-bold">Error: </strong><span className="block sm:inline">{error}</span></div></div>;
       }
-      if (records.length === 0) {
-        return <div className="flex justify-center items-center h-64 p-6 text-center">មិនមានទិន្នន័យសម្រាប់បង្ហាញទេ។</div>;
-      }
+      
+      // [EDITED] Removed the Edit Mode Banner
 
       return (
-        <div className="pb-4">
-          {entryMode && (
-            <div className={`px-4 py-3 rounded-lg text-center m-4 ${isGlass ? 'bg-white/20' : 'bg-blue-100 border border-blue-300 text-blue-800'}`}>
-              <p className="font-semibold">របៀបកែប្រែ (Edit Mode) កំពុងបើក</p>
-              <p className="text-sm">សូមចុចលើ Card ណាមួយដើម្បីកែប្រែ។</p>
+        <div className="pb-4 pt-4">
+          <div className="px-4 mb-4">
+             <input
+               type="text"
+               value={searchQuery}
+               onChange={(e) => setSearchQuery(e.target.value)}
+               placeholder="ស្វែងរក (ឈ្មោះ ឬ ID)..."
+               className={`w-full p-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-400 ${inputBg}`}
+             />
+          </div>
+
+          {processedRecords.length === 0 ? (
+             <div className="flex justify-center items-center h-64 p-6 text-center">មិនមានទិន្នន័យសម្រាប់បង្ហាញទេ។</div>
+          ) : (
+            <div className="space-y-4 px-4">
+                {currentItems.map((record, index) => (
+                <div 
+                    key={record.id} 
+                    onClick={() => entryMode && onRecordClick(record)}
+                    className={`p-4 rounded-xl overflow-hidden transition-all fade-in-card ${bgCard} ${
+                    entryMode ? `cursor-pointer hover:shadow-xl hover:ring-2 ${ringClass}` : ''
+                    }`}
+                    style={{ animationDelay: `${index * 50}ms` }}
+                >
+                    {/* Section 1: Main Info */}
+                    <div className="flex items-center">
+                    <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start">
+                        <h2 className={`text-xl font-bold truncate ${textTitle}`} title={record.employeeName}>{record.employeeName}</h2>
+                        <div className={`flex-shrink-0 flex items-center ml-2 ${textSubtitle}`}>
+                            <IdIcon className="w-4 h-4 mr-1.5" />
+                            <span className="text-sm font-mono font-medium">ID: {toKhmerNumber(record.employeeId)}</span>
+                        </div>
+                        </div>
+                        {record.grade && (
+                            <div className={`flex items-center mt-1.5 ${textSubtitle}`}>
+                                <BookmarkIcon className="w-4 h-4 mr-2" />
+                                <span className="text-sm font-medium truncate">{record.grade}</span>
+                            </div>
+                        )}
+                        <div className={`flex items-center ${record.grade ? 'mt-1' : 'mt-1.5'} ${textSubtitle}`}>
+                        <BuildingIcon className="w-4 h-4 mr-2" />
+                        <span className="text-sm font-medium truncate">{record.department}</span>
+                        </div>
+                        <span className={`text-sm font-medium mt-1 block ${isGlass ? 'text-blue-300' : 'text-blue-600'}`}>{formatKhmerDate(record.dateId)}</span>
+                    </div>
+                    </div>
+                    
+                    {/* Section 2: Check-in/Out */}
+                    <div className={`grid grid-cols-2 gap-4 pt-4 mt-4 ${borderCard}`}>
+                    <div className="flex items-center space-x-3">
+                        <div className={`p-3 rounded-full ${checkEntryType(record.checkIn) === 'TIME' ? bgIconGreen : bgIconRed}`}>
+                        <ClockIcon className={`w-5 h-5 ${checkEntryType(record.checkIn) === 'TIME' ? textGreen : textRed}`} />
+                        </div>
+                        <div>
+                        <span className={`text-xs ${textSubtitle}`}>Check In</span>
+                        {checkEntryType(record.checkIn) === 'TIME' ? (
+                            <p className={`font-bold text-lg ${textGreen}`}>{toKhmerNumber(record.checkIn)}</p>
+                        ) : (
+                            <p className={`font-bold text-base ${textRed}`}>
+                            {checkEntryType(record.checkIn) === 'LEAVE' ? (record.checkIn || 'សុំច្បាប់') : 'អវត្តមាន'}
+                            </p>
+                        )}
+                        </div>
+                    </div>
+                    <div className="flex items-center space-x-3">
+                        <div className={`p-3 rounded-full ${checkEntryType(record.checkOut) === 'TIME' ? bgIconRed : (checkEntryType(record.checkIn) === 'TIME' ? bgIconMuted : bgIconRed)}`}>
+                        <ClockIcon className={`w-5 h-5 ${checkEntryType(record.checkOut) === 'TIME' ? textRedTime : (checkEntryType(record.checkIn) === 'TIME' ? textMuted : textRed)}`} />
+                        </div>
+                        <div>
+                        <span className={`text-xs ${textSubtitle}`}>Check Out</span>
+                        {checkEntryType(record.checkOut) === 'TIME' ? (
+                            <p className={`font-bold text-lg ${textRedTime}`}>{toKhmerNumber(record.checkOut)}</p>
+                        ) : (
+                            <p className={`font-bold text-base ${checkEntryType(record.checkIn) === 'TIME' ? textMuted : textRed}`}>
+                            {checkEntryType(record.checkOut) === 'LEAVE' ? (record.checkOut || 'សុំច្បាប់') : 'អវត្តមាន'}
+                            </p>
+                        )}
+                        </div>
+                    </div>
+                    </div>
+                </div>
+                ))}
             </div>
           )}
-          <div className="space-y-4 px-4">
-            {currentItems.map((record, index) => (
-              <div 
-                key={record.id} 
-                onClick={() => entryMode && onRecordClick(record)}
-                className={`p-4 rounded-xl overflow-hidden transition-all fade-in-card ${bgCard} ${
-                  entryMode ? `cursor-pointer hover:shadow-xl hover:ring-2 ${ringClass}` : ''
-                }`}
-                style={{ animationDelay: `${index * 50}ms` }}
-              >
-                {/* Section 1: Main Info */}
-                <div className="flex items-center">
-                  <div className="flex-1 min-w-0">
-                    <div className="flex justify-between items-start">
-                      <h2 className={`text-xl font-bold truncate ${textTitle}`} title={record.employeeName}>{record.employeeName}</h2>
-                      <div className={`flex-shrink-0 flex items-center ml-2 ${textSubtitle}`}>
-                        <IdIcon className="w-4 h-4 mr-1.5" />
-                        <span className="text-sm font-mono font-medium">ID: {toKhmerNumber(record.employeeId)}</span>
-                      </div>
-                    </div>
-                    {record.grade && (
-                        <div className={`flex items-center mt-1.5 ${textSubtitle}`}>
-                            <BookmarkIcon className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium truncate">{record.grade}</span>
-                        </div>
-                    )}
-                    <div className={`flex items-center ${record.grade ? 'mt-1' : 'mt-1.5'} ${textSubtitle}`}>
-                      <BuildingIcon className="w-4 h-4 mr-2" />
-                      <span className="text-sm font-medium truncate">{record.department}</span>
-                    </div>
-                    <span className={`text-sm font-medium mt-1 block ${isGlass ? 'text-blue-300' : 'text-blue-600'}`}>{formatKhmerDate(record.dateId)}</span>
-                  </div>
-                </div>
-                
-                {/* Section 2: Check-in/Out */}
-                <div className={`grid grid-cols-2 gap-4 pt-4 mt-4 ${borderCard}`}>
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-3 rounded-full ${checkEntryType(record.checkIn) === 'TIME' ? bgIconGreen : bgIconRed}`}>
-                      <ClockIcon className={`w-5 h-5 ${checkEntryType(record.checkIn) === 'TIME' ? textGreen : textRed}`} />
-                    </div>
-                    <div>
-                      <span className={`text-xs ${textSubtitle}`}>Check In</span>
-                      {checkEntryType(record.checkIn) === 'TIME' ? (
-                        <p className={`font-bold text-lg ${textGreen}`}>{toKhmerNumber(record.checkIn)}</p>
-                      ) : (
-                        <p className={`font-bold text-base ${textRed}`}>
-                          {checkEntryType(record.checkIn) === 'LEAVE' ? (record.checkIn || 'សុំច្បាប់') : 'អវត្តមាន'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex items-center space-x-3">
-                    <div className={`p-3 rounded-full ${checkEntryType(record.checkOut) === 'TIME' ? bgIconRed : (checkEntryType(record.checkIn) === 'TIME' ? bgIconMuted : bgIconRed)}`}>
-                      <ClockIcon className={`w-5 h-5 ${checkEntryType(record.checkOut) === 'TIME' ? textRedTime : (checkEntryType(record.checkIn) === 'TIME' ? textMuted : textRed)}`} />
-                    </div>
-                    <div>
-                      <span className={`text-xs ${textSubtitle}`}>Check Out</span>
-                      {checkEntryType(record.checkOut) === 'TIME' ? (
-                        <p className={`font-bold text-lg ${textRedTime}`}>{toKhmerNumber(record.checkOut)}</p>
-                      ) : (
-                        <p className={`font-bold text-base ${checkEntryType(record.checkIn) === 'TIME' ? textMuted : textRed}`}>
-                          {checkEntryType(record.checkOut) === 'LEAVE' ? (record.checkOut || 'សុំច្បាប់') : 'អវត្តមាន'}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
           
           <PaginationControls 
             currentPage={currentPage}
@@ -846,13 +913,15 @@
       filterToday, setFilterToday,
       filterIncomplete, setFilterIncomplete,
       filterIncompleteNotToday, setFilterIncompleteNotToday,
+      filterScannedInOnly, setFilterScannedInOnly, // New
+      filterCompleteScan, setFilterCompleteScan, // New
       entryMode, setEntryMode,
       activeThemeKey, onThemeChange,
       theme,
-      // Props សម្រាប់ Admin Filter
-      // adminGroupFilter, setAdminGroupFilter, availableGroups,  <-- លុបចេញ មិនប្រើទៀតទេ
       adminShiftFilter, setAdminShiftFilter, 
-      VALID_SHIFTS
+      VALID_SHIFTS,
+      // [NEW] Shift Filter for User
+      filterUserShift, setFilterUserShift
     }) => {
       
       const isGlass = theme.bgClass.includes('gradient');
@@ -866,8 +935,12 @@
         setFilterToday(setter === setFilterToday ? value : false);
         setFilterIncomplete(setter === setFilterIncomplete ? value : false);
         setFilterIncompleteNotToday(setter === setFilterIncompleteNotToday ? value : false);
+        setFilterScannedInOnly(setter === setFilterScannedInOnly ? value : false);
+        setFilterCompleteScan(setter === setFilterCompleteScan ? value : false);
       };
       
+      const userShifts = ['Uptime','ពេញម៉ោង','ពេលយប់','មួយព្រឹក','មួយរសៀល'];
+
       return (
         <div className="p-4 space-y-6">
           
@@ -875,6 +948,23 @@
           <div>
             <h2 className={`text-xl font-semibold px-2 mb-2 ${textTitle}`}>តម្រងបង្ហាញ (ទំព័រដើម)</h2>
             <div className="space-y-3">
+              {/* [NEW] Shift Filter Dropdown */}
+              <div className={`p-4 rounded-xl ${bgCard} mb-4`}>
+                <label className={`block text-sm font-medium mb-2 ${textLabel}`}>
+                  ត្រងតាមវេន (Home Page)
+                </label>
+                <select
+                  value={filterUserShift}
+                  onChange={(e) => setFilterUserShift(e.target.value)}
+                  className={`w-full p-3 rounded-xl border focus:outline-none focus:ring-2 focus:ring-blue-400 ${inputBg}`}
+                >
+                  <option value="ALL" className={optionBg}>-- គ្រប់វេន --</option>
+                  {userShifts.map(shift => (
+                    <option key={shift} value={shift} className={optionBg}>{shift}</option>
+                  ))}
+                </select>
+              </div>
+
               <ToggleSwitch
                 label="បង្ហាញតែថ្ងៃនេះ"
                 enabled={filterToday}
@@ -893,6 +983,18 @@
                 onChange={(val) => handleFilterChange(setFilterIncompleteNotToday, val)}
                 theme={theme}
               />
+              <ToggleSwitch
+                label="បង្ហាញតែអ្នកស្កេនចូល (Scanned In Only)"
+                enabled={filterScannedInOnly}
+                onChange={(val) => handleFilterChange(setFilterScannedInOnly, val)}
+                theme={theme}
+              />
+              <ToggleSwitch
+                label="បង្ហាញអ្នកស្កេនពេញលេញ (Complete Scan)"
+                enabled={filterCompleteScan}
+                onChange={(val) => handleFilterChange(setFilterCompleteScan, val)}
+                theme={theme}
+              />
             </div>
           </div>
           
@@ -901,8 +1003,6 @@
             <h2 className={`text-xl font-semibold px-2 mb-2 pt-4 ${textTitle}`}>តម្រង (ទំព័រ Admin)</h2>
             <div className={`p-4 rounded-xl space-y-4 ${bgCard}`}>
               
-               {/* [EDIT] លុបផ្នែកបង្ហាញអក្សរ "ក្រុមត្រូវបានកំណត់ស្វ័យប្រវត្តិ" ចេញ */}
-
               {/* Filter វេន */}
               <div>
                 <label className={`block text-sm font-medium mb-1 ${textLabel}`}>
@@ -1310,6 +1410,12 @@
       const [filterToday, setFilterToday] = useStickyState(false, 'checkme_filterToday');
       const [filterIncomplete, setFilterIncomplete] = useStickyState(false, 'checkme_filterIncomplete');
       const [filterIncompleteNotToday, setFilterIncompleteNotToday] = useStickyState(false, 'checkme_filterIncompleteNotToday');
+      // [NEW] Filters state
+      const [filterScannedInOnly, setFilterScannedInOnly] = useStickyState(false, 'checkme_filterScannedInOnly');
+      const [filterCompleteScan, setFilterCompleteScan] = useStickyState(false, 'checkme_filterCompleteScan');
+      // [NEW] Shift Filter for User
+      const [filterUserShift, setFilterUserShift] = useStickyState('ALL', 'checkme_filterUserShift');
+
       const [entryMode, setEntryMode] = useStickyState(false, 'checkme_entryMode');
       
       // [EDITED] លែងត្រូវការ State នេះសម្រាប់ User ជ្រើសរើសហើយ ប៉ុន្តែទុកវាចោលសិន ឬលុបចោលក៏បាន
@@ -1458,6 +1564,30 @@
             return recordDept.includes(targetDept) || targetDept.includes(recordDept);
         });
 
+        // [NEW] User Shift Filter
+        if (filterUserShift !== 'ALL') {
+            records = records.filter(record => {
+                const empSchedule = schedules[record.employeeId];
+                if (!empSchedule) return false;
+                
+                // Calculate shift for this specific record's date
+                // We assume record.dateId is YYYY-MM-DD
+                const date = new Date(record.dateId + 'T00:00:00'); // Ensure local time
+                const dayIndex = date.getDay(); // 0=Sun
+                const shiftKeys = ['SHIFT_SUN', 'SHIFT_MON', 'SHIFT_TUE', 'SHIFT_WED', 'SHIFT_THU', 'SHIFT_FRI', 'SHIFT_SAT'];
+                const shiftKey = shiftKeys[dayIndex];
+                const shift = empSchedule[shiftKey];
+                
+                if (!shift) return false;
+                
+                // Normalize both for comparison
+                const normShift = normalize(shift);
+                const normFilter = normalize(filterUserShift);
+                
+                return normShift.includes(normFilter) || normFilter.includes(normShift);
+            });
+        }
+
         if (filterToday) {
           const today = getLocalDate();
           records = records.filter(record => record.dateId === today);
@@ -1466,13 +1596,27 @@
         } else if (filterIncompleteNotToday) {
           const today = getLocalDate();
           records = records.filter(record => (!record.checkIn || !record.checkOut) && record.dateId !== today);
+        } 
+        
+        // [NEW] Filters implementation
+        if (filterScannedInOnly) {
+            records = records.filter(record => 
+                checkEntryType(record.checkIn) === 'TIME' && 
+                checkEntryType(record.checkOut) !== 'TIME'
+            );
+        } else if (filterCompleteScan) {
+            records = records.filter(record => 
+                checkEntryType(record.checkIn) === 'TIME' && 
+                checkEntryType(record.checkOut) === 'TIME'
+            );
         }
+
         return records;
-      }, [attendanceRecords, filterToday, filterIncomplete, filterIncompleteNotToday]);
+      }, [attendanceRecords, filterToday, filterIncomplete, filterIncompleteNotToday, filterScannedInOnly, filterCompleteScan, filterUserShift, schedules]);
       
       useEffect(() => {
         setCurrentPage(1);
-      }, [filterToday, filterIncomplete, filterIncompleteNotToday]);
+      }, [filterToday, filterIncomplete, filterIncompleteNotToday, filterScannedInOnly, filterCompleteScan, filterUserShift]);
       
       // (កែប្រែ) Function រក្សាទុកទិន្នន័យ (Admin និង User)
       const handleSaveRecord = async (updatedData, isAdminEntry = false) => {
@@ -1611,6 +1755,14 @@
                     setFilterIncomplete={setFilterIncomplete}
                     filterIncompleteNotToday={filterIncompleteNotToday}
                     setFilterIncompleteNotToday={setFilterIncompleteNotToday}
+                    // Pass new props
+                    filterScannedInOnly={filterScannedInOnly}
+                    setFilterScannedInOnly={setFilterScannedInOnly}
+                    filterCompleteScan={filterCompleteScan}
+                    setFilterCompleteScan={setFilterCompleteScan}
+                    // [NEW] Shift Filter for User
+                    filterUserShift={filterUserShift}
+                    setFilterUserShift={setFilterUserShift}
                     entryMode={entryMode}
                     setEntryMode={setEntryMode}
                     activeThemeKey={activeThemeKey}
