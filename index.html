@@ -18,8 +18,8 @@
   <!-- 4. ផ្ទុក Firebase (v8 compat) -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-  <!-- [FIXED] ប្រើតែ Realtime Database (លុប Firestore ចេញ) -->
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script> <!-- សម្រាប់ Attendance -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>  <!-- សម្រាប់ Student List -->
 
   <!-- 5. ផ្ទុក Font ខ្មែរ (Kantumruy Pro) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -549,7 +549,7 @@
     // --- ៥. Components សម្រាប់ទំព័រនីមួយៗ ---
 
     // Component ទំព័រ Home (AttendanceList)
-    const AttendanceList = ({ records, loading, error, entryMode, onRecordClick, currentPage, setCurrentPage, theme, schedules, filterUserShift }) => {
+    const AttendanceList = ({ records, loading, error, entryMode, onRecordClick, currentPage, setCurrentPage, theme, schedules = {}, filterUserShift }) => {
       
       const [searchQuery, setSearchQuery] = useState_Component('');
 
@@ -586,9 +586,10 @@
         // 3. [FIXED] User Shift Filter Logic (With safety check for schedules)
         if (filterUserShift !== 'ALL') {
             data = data.filter(record => {
-                if (!schedules) return false; // Safety check added
+                // [FIXED] Added Safety Check for schedules[record.employeeId]
+                if (!schedules || !schedules[record.employeeId]) return false;
+                
                 const empSchedule = schedules[record.employeeId];
-                if (!empSchedule) return false;
                 
                 // Calculate shift for this specific record's date
                 // We assume record.dateId is YYYY-MM-DD
@@ -1384,10 +1385,29 @@
       measurementId: "G-NQ798D9J6K"
     };
 
-    // --- Google Sheet API Config (ប្រើ Key ថ្មី) ---
-    const GOOGLE_API_KEY = 'AIzaSyDX3DGMjYiuPlaiCDlk0KCm-0JQVcCwUJY';
-    const SHEET_ID = '1eRyPoifzyvB4oBmruNyXcoKMKPRqjk6xDD6-bPNW6pc';
-    const SHEET_NAME = 'DIList';
+    // --- Student List Config (សម្រាប់ការទាញទិន្នន័យសិស្ស/បុគ្គលិក) ---
+    const studentListConfig = {
+      apiKey: "AIzaSyAc2g-t9A7du3K_nI2fJnw_OGxhmLfpP6s",
+      authDomain: "dilistname.firebaseapp.com",
+      databaseURL: "https://dilistname-default-rtdb.firebaseio.com",
+      projectId: "dilistname",
+      storageBucket: "dilistname.firebasestorage.app",
+      messagingSenderId: "897983357871",
+      appId: "1:897983357871:web:42a046bc9fb3e0543dc55a",
+      measurementId: "G-NQ798D9J6K"
+    };
+
+    // --- Attendance Config (សម្រាប់ការកត់ត្រាវត្តមាន) ---
+    const attendanceConfig = {
+      apiKey: "AIzaSyCgc3fq9mDHMCjTRRHD3BPBL31JkKZgXFc",
+      authDomain: "checkme-10e18.firebaseapp.com",
+      databaseURL: "https://checkme-10e18-default-rtdb.firebaseio.com",
+      projectId: "checkme-10e18",
+      storageBucket: "checkme-10e18.firebasestorage.app",
+      messagingSenderId: "1030447497157",
+      appId: "1:1030447497157:web:9792086df1e864559fd5ac",
+      measurementId: "G-QCJ2JH4WH6"
+    };
     
     // (កែតម្រូវ) Column Index ឱ្យត្រូវ
     const COL_INDEX = {
@@ -1414,11 +1434,22 @@
 
 
     // --- ចាប់ផ្តើម Firebase (v8 style) ---
+    // Initialize Default App for Attendance (CheckMe) [ATTENDANCE: FIRESTORE]
     if (!firebase.apps.length) {
-      firebase.initializeApp(firebaseConfig);
+      firebase.initializeApp(attendanceConfig);
     }
+    
+    // Initialize Secondary App for Student List (DIList) [STUDENT LIST: REALTIME DB]
+    let studentApp;
+    try {
+        studentApp = firebase.app("studentApp");
+    } catch (e) {
+        studentApp = firebase.initializeApp(studentListConfig, "studentApp");
+    }
+
     const auth = firebase.auth();
-    // [FIXED] លុប const db = firebase.firestore(); ចោល
+    const attendanceDb = firebase.firestore(); // Default App DB is FIRESTORE now
+    const studentDb = studentApp.database(); // Secondary App DB is RTDB
 
 
     // --- Component គោលរបស់កម្មវិធី ---
@@ -1506,48 +1537,43 @@
         return () => unsubscribeAuth();
       }, []);
 
-      // [FIXED] ទាញទិន្នន័យពី Realtime Database ជំនួសឱ្យ Firestore
+      // [FIXED] ទាញទិន្នន័យពី FIRESTORE ជំនួសឱ្យ Realtime Database
       useEffect(() => {
         if (!userId) return;
-        const attendanceRef = firebase.database().ref('attendance');
+        // ប្រើ CollectionGroup ដើម្បីទាញ 'records' ទាំងអស់
+        const allRecordsQuery = attendanceDb.collectionGroup('records');
         setLoading(true);
+        setError(null);
 
-        const handleData = (snapshot) => {
-          const data = snapshot.val();
+        const unsubscribeFirestore = allRecordsQuery.onSnapshot((querySnapshot) => {
           const records = [];
-          if (data) {
-            Object.keys(data).forEach(empId => {
-              const empRecords = data[empId];
-              Object.keys(empRecords).forEach(dateKey => {
-                 records.push({
-                   id: `${empId}-${dateKey}`,
-                   employeeId: empId,
-                   dateId: dateKey,
-                   ...empRecords[dateKey]
-                 });
-              });
+          querySnapshot.forEach((doc) => {
+            const employeeId = doc.ref.parent.parent ? doc.ref.parent.parent.id : 'unknown';
+            records.push({ 
+              id: `${employeeId}-${doc.id}`,
+              employeeId: employeeId,
+              dateId: doc.id,
+              ...doc.data() 
             });
-          }
-          // Sort logic
+          });
           records.sort((a, b) => b.dateId.localeCompare(a.dateId));
           setAttendanceRecords(records);
           setLoading(false);
-        };
-
-        attendanceRef.on('value', handleData, (error) => {
-           console.error("Error fetching RTDB attendance:", error);
-           setError("Error fetching attendance data.");
-           setLoading(false);
+        }, (firestoreError) => {
+          console.error("Error fetching Firestore data (CollectionGroup): ", firestoreError);
+          setError("ទាញទិន្នន័យ Firestore មិនជោគជ័យ។ (ប្រហែលត្រូវបង្កើត Index សម្រាប់ CollectionGroup 'records' ដោយតម្រៀបតាម dateId)");
+          setLoading(false);
         });
 
-        return () => attendanceRef.off('value', handleData);
+        return () => unsubscribeFirestore();
       }, [userId]);
       
       useEffect(() => {
         const fetchRTDBData = async () => {
           setLoadingSchedules(true);
           try {
-            const snapshot = await firebase.database().ref('students').once('value');
+            // [FIXED] Use Secondary App DB for Student List
+            const snapshot = await studentDb.ref('students').once('value');
             if (snapshot.exists()) {
               const data = snapshot.val();
               const employeeData = {};
@@ -1614,8 +1640,10 @@
         // [NEW] User Shift Filter
         if (filterUserShift !== 'ALL') {
             records = records.filter(record => {
+                // [FIXED] Added Safety Check for schedules[record.employeeId]
+                if (!schedules || !schedules[record.employeeId]) return false;
+                
                 const empSchedule = schedules[record.employeeId];
-                if (!empSchedule) return false;
                 
                 // Calculate shift for this specific record's date
                 // We assume record.dateId is YYYY-MM-DD
@@ -1665,7 +1693,7 @@
         setCurrentPage(1);
       }, [filterToday, filterIncomplete, filterIncompleteNotToday, filterScannedInOnly, filterCompleteScan, filterUserShift]);
       
-      // (កែប្រែ) Function រក្សាទុកទិន្នន័យ (Admin និង User) [FIXED: RTDB]
+      // (កែប្រែ) Function រក្សាទុកទិន្នន័យ (Admin និង User) [FIXED: FIRESTORE]
       const handleSaveRecord = async (updatedData, isAdminEntry = false) => {
         const { employeeId, dateId } = updatedData;
         
@@ -1674,7 +1702,8 @@
           return;
         }
         
-        const recordRef = firebase.database().ref(`attendance/${employeeId}/${dateId}`);
+        const recordDocRef = attendanceDb.collection('attendance').doc(String(employeeId))
+                                .collection('records').doc(dateId);
         
         let dataToSave = {};
 
@@ -1692,7 +1721,7 @@
 
         try {
           // ប្រើ { merge: true } ដើម្បី Update ឬ Create ដោយមិនលុបទិន្នន័យចាស់
-          await recordRef.update(dataToSave); 
+          await recordDocRef.set(dataToSave, { merge: true }); 
           console.log("Record updated/created successfully!");
           setEditingRecord(null); // បិទ Modal (ប្រសិនបើជា EditModal)
         } catch (e) {
@@ -1776,7 +1805,7 @@
                     currentPage={currentPage}
                     setCurrentPage={setCurrentPage}
                     theme={theme}
-                    schedules={schedules}
+                    schedules={schedules || {}}
                     filterUserShift={filterUserShift}
                   />
                 )}
