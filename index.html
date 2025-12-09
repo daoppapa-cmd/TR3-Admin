@@ -18,7 +18,8 @@
   <!-- 4. ផ្ទុក Firebase (v8 compat) -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <!-- [FIXED] ប្រើតែ Realtime Database (លុប Firestore ចេញ) -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-database.js"></script>
 
   <!-- 5. ផ្ទុក Font ខ្មែរ (Kantumruy Pro) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -548,7 +549,7 @@
     // --- ៥. Components សម្រាប់ទំព័រនីមួយៗ ---
 
     // Component ទំព័រ Home (AttendanceList)
-    const AttendanceList = ({ records, loading, error, entryMode, onRecordClick, currentPage, setCurrentPage, theme }) => {
+    const AttendanceList = ({ records, loading, error, entryMode, onRecordClick, currentPage, setCurrentPage, theme, schedules, filterUserShift }) => {
       
       const [searchQuery, setSearchQuery] = useState_Component('');
 
@@ -564,32 +565,69 @@
             );
         }
 
-        // 2. Sort Logic: Check In Latest to Top
-        // We compare full date+time string for accurate sorting
+        // 2. [FIXED] Broaden Filter Logic: Check both GROUP and DEPT
+        const normalize = (str) => {
+           if (!str) return '';
+           return str.replace(/\s+/g, '') 
+                     .replace(/[០-៩]/g, d => "0123456789"['០១២៣៤៥៦៧៨៩'.indexOf(d)]) // លេខខ្មែរ -> ឡាតាំង
+                     .toLowerCase();
+        };
+        const targetGroup = normalize('Training_ជំនាន់២');
+        
+        data = data.filter(record => {
+            const rDept = normalize(record.department);
+            // Check both DEPT and GROUP to be safe
+            const rGroup = normalize(record.group);
+            
+            return rDept.includes(targetGroup) || targetGroup.includes(rDept) ||
+                   rGroup.includes(targetGroup) || targetDept.includes(rGroup);
+        });
+
+        // 3. [FIXED] User Shift Filter Logic (With safety check for schedules)
+        if (filterUserShift !== 'ALL') {
+            data = data.filter(record => {
+                if (!schedules) return false; // Safety check added
+                const empSchedule = schedules[record.employeeId];
+                if (!empSchedule) return false;
+                
+                // Calculate shift for this specific record's date
+                // We assume record.dateId is YYYY-MM-DD
+                const date = new Date(record.dateId + 'T00:00:00'); // Ensure local time
+                const dayIndex = date.getDay(); // 0=Sun
+                const shiftKeys = ['SHIFT_SUN', 'SHIFT_MON', 'SHIFT_TUE', 'SHIFT_WED', 'SHIFT_THU', 'SHIFT_FRI', 'SHIFT_SAT'];
+                const shiftKey = shiftKeys[dayIndex];
+                const shift = empSchedule[shiftKey];
+                
+                if (!shift) return false;
+                
+                // Normalize both for comparison
+                const normShift = normalize(shift);
+                const normFilter = normalize(filterUserShift);
+                
+                return normShift.includes(normFilter) || normFilter.includes(normShift);
+            });
+        }
+
+        // 4. Sort Logic: Check In Latest to Top
         data.sort((a, b) => {
-            // First check if they have checkIn time
             const hasCheckInA = checkEntryType(a.checkIn) === 'TIME';
             const hasCheckInB = checkEntryType(b.checkIn) === 'TIME';
 
-            if (hasCheckInA && !hasCheckInB) return -1; // A comes first
-            if (!hasCheckInA && hasCheckInB) return 1;  // B comes first
-            if (!hasCheckInA && !hasCheckInB) return 0; // Keep order
+            if (hasCheckInA && !hasCheckInB) return -1; 
+            if (!hasCheckInA && hasCheckInB) return 1;  
+            if (!hasCheckInA && !hasCheckInB) return 0; 
 
-            // Both have check-in, compare actual time value (including date if possible, but here we assume filtered by date mainly or just time)
-            // Since we might have different dates in the list, comparing just time might be wrong if we want absolute latest.
-            // But 'records' comes sorted by Date Descending already.
-            // If dates are same, we compare time.
             if (a.dateId !== b.dateId) {
-                return b.dateId.localeCompare(a.dateId); // Fallback to date sort
+                return b.dateId.localeCompare(a.dateId); 
             }
             
             const timeA = getTimeValue(a.checkIn);
             const timeB = getTimeValue(b.checkIn);
-            return timeB - timeA; // Descending (Larger/Later time first)
+            return timeB - timeA; 
         });
 
         return data;
-      }, [records, searchQuery]);
+      }, [records, searchQuery, filterUserShift, schedules]);
 
       const ITEMS_PER_PAGE = 12;
       const totalPages = Math.ceil(processedRecords.length / ITEMS_PER_PAGE);
@@ -597,7 +635,6 @@
       const indexOfFirstItem = indexOfLastItem - ITEMS_PER_PAGE;
       const currentItems = processedRecords.slice(indexOfFirstItem, indexOfLastItem);
       
-      // Reset page when search changes
       useEffect_Component(() => {
           setCurrentPage(1);
       }, [searchQuery]);
@@ -605,21 +642,20 @@
       const nextPage = () => setCurrentPage(prev => Math.min(prev + 1, totalPages));
       const prevPage = () => setCurrentPage(prev => Math.max(prev - 1, 1));
       
-      // Theme Styles
       const isGlass = theme.bgClass.includes('gradient');
       const bgCard = isGlass ? 'bg-white/10 backdrop-blur-md' : 'bg-white shadow-lg border border-gray-100';
       const textTitle = isGlass ? 'text-white' : 'text-gray-800';
       const textSubtitle = isGlass ? 'text-gray-200' : 'text-gray-500';
-      const textMuted = isGlass ? 'text-gray-300' : 'text-gray-400';
-      const textRed = 'text-red-500 font-bold';
-      const textGreen = isGlass ? 'text-green-300' : 'text-green-700';
-      const textRedTime = isGlass ? 'text-red-300' : 'text-red-700';
       const bgIconGreen = isGlass ? 'bg-green-500/20' : 'bg-green-100';
       const bgIconRed = isGlass ? 'bg-red-500/20' : 'bg-red-100';
       const bgIconMuted = isGlass ? 'bg-gray-500/20' : 'bg-gray-100';
       const borderCard = isGlass ? 'border-t border-white/10' : 'border-t border-gray-100';
       const ringClass = isGlass ? 'hover:ring-white/50' : 'hover:ring-blue-500';
       const inputBg = isGlass ? 'bg-white/20 border-white/30 text-white placeholder-gray-300' : 'bg-white border-gray-300 text-gray-900 placeholder-gray-400';
+      const textGreen = isGlass ? 'text-green-300' : 'text-green-700';
+      const textRed = 'text-red-500 font-bold';
+      const textRedTime = isGlass ? 'text-red-300' : 'text-red-700';
+      const textMuted = isGlass ? 'text-gray-300' : 'text-gray-400';
 
       if (loading) {
         return <div className="flex justify-center items-center h-full p-6">កំពុងទាញទិន្នន័យ...</div>;
@@ -655,7 +691,6 @@
                     }`}
                     style={{ animationDelay: `${index * 50}ms` }}
                 >
-                    {/* Section 1: Main Info */}
                     <div className="flex items-center">
                     <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start">
@@ -679,7 +714,6 @@
                     </div>
                     </div>
                     
-                    {/* Section 2: Check-in/Out */}
                     <div className={`grid grid-cols-2 gap-4 pt-4 mt-4 ${borderCard}`}>
                     <div className="flex items-center space-x-3">
                         <div className={`p-3 rounded-full ${checkEntryType(record.checkIn) === 'TIME' ? bgIconGreen : bgIconRed}`}>
@@ -761,7 +795,11 @@
         // ត្រងយកតែ records ដែលមាន department ត្រូវគ្នា
         const deptRecords = records.filter(r => {
             const rDept = normalize(r.department);
-            return rDept.includes(targetDept) || targetDept.includes(rDept);
+            // Check both DEPT and GROUP to be safe
+            const rGroup = normalize(r.group);
+            
+            return rDept.includes(targetDept) || targetDept.includes(rDept) ||
+                   rGroup.includes(targetDept) || targetDept.includes(rGroup);
         });
 
         const todayRecords = deptRecords.filter(r => r.dateId === selectedDate);
@@ -1141,10 +1179,13 @@
           if (adminGroupFilter !== 'ALL') {
              // ប្រើ DEPT ជំនួស GROUP
              const empDept = normalize(emp['DEPT']);
+             const empGroup = normalize(emp['GROUP']); // [NEW] Check group as well
              const filterVal = normalize(adminGroupFilter);
              
              // [UPDATED] ប្រៀបធៀបដោយប្រើ normalize លើ DEPT ជំនួស GROUP
-             if (!empDept.includes(filterVal) && !filterVal.includes(empDept)) {
+             // If filterVal is not found in EITHER DEPT or GROUP, skip
+             if (!empDept.includes(filterVal) && !filterVal.includes(empDept) &&
+                 !empGroup.includes(filterVal) && !filterVal.includes(empGroup)) {
                  return false;
              }
           }
@@ -1333,13 +1374,14 @@
 
     // --- Firebase Config (ប្រើ Key ចាស់) ---
     const firebaseConfig = {
-      apiKey: "AIzaSyCgc3fq9mDHMCjTRRHD3BPBL31JkKZgXFc",
-      authDomain: "checkme-10e18.firebaseapp.com",
-      projectId: "checkme-10e18",
-      storageBucket: "checkme-10e18.firebasestorage.app",
-      messagingSenderId: "1030447497157",
-      appId: "1:1030447497157:web:9792086df1e864559fd5ac",
-      measurementId: "G-QCJ2JH4WH6"
+      apiKey: "AIzaSyAc2g-t9A7du3K_nI2fJnw_OGxhmLfpP6s",
+      authDomain: "dilistname.firebaseapp.com",
+      databaseURL: "https://dilistname-default-rtdb.firebaseio.com",
+      projectId: "dilistname",
+      storageBucket: "dilistname.firebasestorage.app",
+      messagingSenderId: "897983357871",
+      appId: "1:897983357871:web:42a046bc9fb3e0543dc55a",
+      measurementId: "G-NQ798D9J6K"
     };
 
     // --- Google Sheet API Config (ប្រើ Key ថ្មី) ---
@@ -1376,7 +1418,7 @@
       firebase.initializeApp(firebaseConfig);
     }
     const auth = firebase.auth();
-    const db = firebase.firestore();
+    // [FIXED] លុប const db = firebase.firestore(); ចោល
 
 
     // --- Component គោលរបស់កម្មវិធី ---
@@ -1464,85 +1506,86 @@
         return () => unsubscribeAuth();
       }, []);
 
+      // [FIXED] ទាញទិន្នន័យពី Realtime Database ជំនួសឱ្យ Firestore
       useEffect(() => {
         if (!userId) return;
-        // ប្រើ CollectionGroup ដើម្បីទាញ 'records' ទាំងអស់
-        const allRecordsQuery = db.collectionGroup('records');
+        const attendanceRef = firebase.database().ref('attendance');
         setLoading(true);
-        setError(null);
 
-        const unsubscribeFirestore = allRecordsQuery.onSnapshot((querySnapshot) => {
+        const handleData = (snapshot) => {
+          const data = snapshot.val();
           const records = [];
-          querySnapshot.forEach((doc) => {
-            const employeeId = doc.ref.parent.parent ? doc.ref.parent.parent.id : 'unknown';
-            records.push({ 
-              id: `${employeeId}-${doc.id}`,
-              employeeId: employeeId,
-              dateId: doc.id,
-              ...doc.data() 
+          if (data) {
+            Object.keys(data).forEach(empId => {
+              const empRecords = data[empId];
+              Object.keys(empRecords).forEach(dateKey => {
+                 records.push({
+                   id: `${empId}-${dateKey}`,
+                   employeeId: empId,
+                   dateId: dateKey,
+                   ...empRecords[dateKey]
+                 });
+              });
             });
-          });
+          }
+          // Sort logic
           records.sort((a, b) => b.dateId.localeCompare(a.dateId));
           setAttendanceRecords(records);
           setLoading(false);
-        }, (firestoreError) => {
-          console.error("Error fetching Firestore data (CollectionGroup): ", firestoreError);
-          setError("ទាញទិន្នន័យ Firestore មិនជោគជ័យ។ (ប្រហែលត្រូវបង្កើត Index សម្រាប់ CollectionGroup 'records' ដោយតម្រៀបតាម dateId)");
-          setLoading(false);
+        };
+
+        attendanceRef.on('value', handleData, (error) => {
+           console.error("Error fetching RTDB attendance:", error);
+           setError("Error fetching attendance data.");
+           setLoading(false);
         });
 
-        return () => unsubscribeFirestore();
+        return () => attendanceRef.off('value', handleData);
       }, [userId]);
       
       useEffect(() => {
-        const fetchSheetData = async () => {
-          const url = `https://sheets.googleapis.com/v4/spreadsheets/${SHEET_ID}/values/${SHEET_NAME}?key=${GOOGLE_API_KEY}`;
+        const fetchRTDBData = async () => {
+          setLoadingSchedules(true);
           try {
-            setLoadingSchedules(true);
-            const response = await fetch(url);
-            if (!response.ok) {
-              throw new Error(`Google Sheet API Error: ${response.status} ${response.statusText}`);
-            }
-            const data = await response.json();
-            const rows = data.values || [];
-
-            if (rows.length < 2) {
-              throw new Error("Google Sheet មិនមានទិន្នន័យ ឬ Header");
-            }
-            const employeeData = {};
-            // ចាប់ផ្តើមពី Row ទី 5 (Index 4)
-            for (let i = 4; i < rows.length; i++) {
-              const row = rows[i];
-              const id = row[COL_INDEX.ID];
+            const snapshot = await firebase.database().ref('students').once('value');
+            if (snapshot.exists()) {
+              const data = snapshot.val();
+              const employeeData = {};
               
-              if (id && id.trim() !== '') {
-                employeeData[id] = {
-                  ID: id,
-                  GROUP: row[COL_INDEX.GROUP],
-                  NAME: row[COL_INDEX.NAME],
-                  GENDER: row[COL_INDEX.GENDER],
-                  GRADE: row[COL_INDEX.GRADE],
-                  DEPT: row[COL_INDEX.DEPT],
-                  SHIFT_MON: row[COL_INDEX.SHIFT_MON],
-                  SHIFT_TUE: row[COL_INDEX.SHIFT_TUE],
-                  SHIFT_WED: row[COL_INDEX.SHIFT_WED],
-                  SHIFT_THU: row[COL_INDEX.SHIFT_THU],
-                  SHIFT_FRI: row[COL_INDEX.SHIFT_FRI],
-                  SHIFT_SAT: row[COL_INDEX.SHIFT_SAT],
-                  SHIFT_SUN: row[COL_INDEX.SHIFT_SUN],
-                  PHOTO: row[COL_INDEX.PHOTO]
+              Object.keys(data).forEach(key => {
+                const item = data[key];
+                // Map RTDB fields to app structure
+                employeeData[key] = {
+                  ID: key, // Using the key as ID (e.g. 111)
+                  GROUP: item['ក្រុម'] || '',
+                  NAME: item['ឈ្មោះ'] || '', // [CHANGED] Use 'ឈ្មោះ' (Khmer name)
+                  GENDER: item['ភេទ'] || '',
+                  GRADE: item['ថ្នាក់'] || item['ជំនាន់'] || '', // Map Grade
+                  DEPT: item['ផ្នែកការងារ'] || '',
+                  SHIFT_MON: item['កាលវិភាគ']?.['ចន្ទ'] || '',
+                  SHIFT_TUE: item['កាលវិភាគ']?.['អង្គារ៍'] || '',
+                  SHIFT_WED: item['កាលវិភាគ']?.['ពុធ'] || '',
+                  SHIFT_THU: item['កាលវិភាគ']?.['ព្រហស្បត្តិ៍'] || '',
+                  SHIFT_FRI: item['កាលវិភាគ']?.['សុក្រ'] || '',
+                  SHIFT_SAT: item['កាលវិភាគ']?.['សៅរ៍'] || '',
+                  SHIFT_SUN: item['កាលវិភាគ']?.['អាទិត្យ'] || '',
+                  PHOTO: item['រូបថត'] || ''
                 };
-              }
+              });
+              setSchedules(employeeData);
+            } else {
+              console.log("No data available in RTDB");
+              setSchedules({});
             }
-            setSchedules(employeeData);
-          } catch (e) {
-            console.error("Error fetching Google Sheet data: ", e);
-            setError("ទាញទិន្នន័យកាលវិភាគមិនជោគជ័យ។ សូមពិនិត្យ Google Sheet API Key។");
+          } catch (error) {
+            console.error("Error fetching RTDB data:", error);
+            setError("បរាជ័យក្នុងការទាញទិន្នន័យពី Realtime Database");
           } finally {
             setLoadingSchedules(false);
           }
         };
-        fetchSheetData();
+
+        fetchRTDBData();
       }, []);
       
       // Logic សម្រាប់ Filter ទំព័រ Home
@@ -1561,7 +1604,11 @@
         const targetDept = normalize('Training_ជំនាន់២');
         records = records.filter(record => {
             const recordDept = normalize(record.department);
-            return recordDept.includes(targetDept) || targetDept.includes(recordDept);
+            // Check both DEPT and GROUP to be safe
+            const rGroup = normalize(record.group);
+            
+            return recordDept.includes(targetDept) || targetDept.includes(recordDept) ||
+                   rGroup.includes(targetDept) || targetDept.includes(rGroup);
         });
 
         // [NEW] User Shift Filter
@@ -1618,7 +1665,7 @@
         setCurrentPage(1);
       }, [filterToday, filterIncomplete, filterIncompleteNotToday, filterScannedInOnly, filterCompleteScan, filterUserShift]);
       
-      // (កែប្រែ) Function រក្សាទុកទិន្នន័យ (Admin និង User)
+      // (កែប្រែ) Function រក្សាទុកទិន្នន័យ (Admin និង User) [FIXED: RTDB]
       const handleSaveRecord = async (updatedData, isAdminEntry = false) => {
         const { employeeId, dateId } = updatedData;
         
@@ -1627,8 +1674,7 @@
           return;
         }
         
-        const recordDocRef = db.collection('attendance').doc(String(employeeId))
-                                .collection('records').doc(dateId);
+        const recordRef = firebase.database().ref(`attendance/${employeeId}/${dateId}`);
         
         let dataToSave = {};
 
@@ -1646,7 +1692,7 @@
 
         try {
           // ប្រើ { merge: true } ដើម្បី Update ឬ Create ដោយមិនលុបទិន្នន័យចាស់
-          await recordDocRef.set(dataToSave, { merge: true }); 
+          await recordRef.update(dataToSave); 
           console.log("Record updated/created successfully!");
           setEditingRecord(null); // បិទ Modal (ប្រសិនបើជា EditModal)
         } catch (e) {
@@ -1730,6 +1776,8 @@
                     currentPage={currentPage}
                     setCurrentPage={setCurrentPage}
                     theme={theme}
+                    schedules={schedules}
+                    filterUserShift={filterUserShift}
                   />
                 )}
                 {activePage === 'admin' && (
