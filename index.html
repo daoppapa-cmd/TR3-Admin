@@ -572,15 +572,18 @@
                      .replace(/[០-៩]/g, d => "0123456789"['០១២៣៤៥៦៧៨៩'.indexOf(d)]) // លេខខ្មែរ -> ឡាតាំង
                      .toLowerCase();
         };
-        const targetGroup = normalize('Training_ជំនាន់២');
+        // [MODIFIED] Filter by specific departments (OR logic)
+        const targetDepts = ['រៀនវគ្គបណ្ដុះបណ្ដាលIT_ជំនាន់២', 'Training_ជំនួយការលោកគ្រូដារ៉ូ'].map(normalize);
         
         data = data.filter(record => {
             const rDept = normalize(record.department);
             // Check both DEPT and GROUP to be safe
             const rGroup = normalize(record.group);
             
-            return rDept.includes(targetGroup) || targetGroup.includes(rDept) ||
-                   rGroup.includes(targetGroup) || targetDept.includes(rGroup);
+            return targetDepts.some(target => 
+                rDept.includes(target) || target.includes(rDept) ||
+                (rGroup && (rGroup.includes(target) || target.includes(rGroup)))
+            );
         });
 
         // 3. [FIXED] User Shift Filter Logic (With safety check for schedules)
@@ -791,7 +794,8 @@
                      .toLowerCase();
         };
         
-        const targetDept = normalize('Training_ជំនាន់២');
+        // [MODIFIED] Filter by specific departments (OR logic)
+        const targetDepts = ['រៀនវគ្គបណ្ដុះបណ្ដាលIT_ជំនាន់២', 'Training_ជំនួយការលោកគ្រូដារ៉ូ'].map(normalize);
         
         // ត្រងយកតែ records ដែលមាន department ត្រូវគ្នា
         const deptRecords = records.filter(r => {
@@ -799,8 +803,10 @@
             // Check both DEPT and GROUP to be safe
             const rGroup = normalize(r.group);
             
-            return rDept.includes(targetDept) || targetDept.includes(rDept) ||
-                   rGroup.includes(targetDept) || targetDept.includes(rGroup);
+            return targetDepts.some(target => 
+                rDept.includes(target) || target.includes(rDept) ||
+                (rGroup && (rGroup.includes(target) || target.includes(rGroup)))
+            );
         });
 
         const todayRecords = deptRecords.filter(r => r.dateId === selectedDate);
@@ -1176,20 +1182,18 @@
         };
 
         let scheduledToday = Object.values(schedules).filter(emp => {
-          // 1. ត្រងតាមផ្នែក (Department) - ជំនួស Group
-          if (adminGroupFilter !== 'ALL') {
-             // ប្រើ DEPT ជំនួស GROUP
-             const empDept = normalize(emp['DEPT']);
-             const empGroup = normalize(emp['GROUP']); // [NEW] Check group as well
-             const filterVal = normalize(adminGroupFilter);
+          // Hardcoded filter for specific departments
+             const targetDepts = ['រៀនវគ្គបណ្ដុះបណ្ដាលIT_ជំនាន់២', 'Training_ជំនួយការលោកគ្រូដារ៉ូ'].map(normalize);
              
-             // [UPDATED] ប្រៀបធៀបដោយប្រើ normalize លើ DEPT ជំនួស GROUP
-             // If filterVal is not found in EITHER DEPT or GROUP, skip
-             if (!empDept.includes(filterVal) && !filterVal.includes(empDept) &&
-                 !empGroup.includes(filterVal) && !filterVal.includes(empGroup)) {
-                 return false;
-             }
-          }
+             const empDept = normalize(emp['DEPT']);
+             const empGroup = normalize(emp['GROUP']);
+             
+             const isMatch = targetDepts.some(target => 
+                 empDept.includes(target) || target.includes(empDept) ||
+                 empGroup.includes(target) || target.includes(empGroup)
+             );
+
+             if (!isMatch) return false;
           
           const shift = getEmployeeShift(emp);
           if (!shift || shift.trim() === '') return false;
@@ -1616,7 +1620,7 @@
       
       // Logic សម្រាប់ Filter ទំព័រ Home
       const filteredRecords = useMemo(() => {
-        let records = attendanceRecords;
+        let records = attendanceRecords; // Shadows the state variable 'attendanceRecords' but assigns it to 'records'
         
         // Helper សម្រាប់បំប្លែងឈ្មោះអោយដូចគ្នា (Normalize)
         const normalize = (str) => {
@@ -1626,15 +1630,18 @@
                      .toLowerCase();
         };
 
-        // [MODIFIED] ត្រងយកតែ ផ្នែកការងារ (Department) "Training_ជំនាន់២" ស្វ័យប្រវត្តិ
-        const targetDept = normalize('Training_ជំនាន់២');
+        // [MODIFIED] Filter by specific departments
+        const targetDepts = ['រៀនវគ្គបណ្ដុះបណ្ដាលIT_ជំនាន់២', 'Training_ជំនួយការលោកគ្រូដារ៉ូ'].map(normalize);
+        
         records = records.filter(record => {
-            const recordDept = normalize(record.department);
+            const rDept = normalize(record.department);
             // Check both DEPT and GROUP to be safe
             const rGroup = normalize(record.group);
             
-            return recordDept.includes(targetDept) || targetDept.includes(recordDept) ||
-                   rGroup.includes(targetDept) || targetDept.includes(rGroup);
+            return targetDepts.some(target => 
+                rDept.includes(target) || target.includes(rDept) ||
+                rGroup.includes(target) || target.includes(rGroup)
+            );
         });
 
         // [NEW] User Shift Filter
@@ -1685,6 +1692,24 @@
                 checkEntryType(record.checkOut) === 'TIME'
             );
         }
+        
+        // 4. Sort Logic: Check In Latest to Top
+        records.sort((a, b) => {
+            const hasCheckInA = checkEntryType(a.checkIn) === 'TIME';
+            const hasCheckInB = checkEntryType(b.checkIn) === 'TIME';
+
+            if (hasCheckInA && !hasCheckInB) return -1; 
+            if (!hasCheckInA && hasCheckInB) return 1;  
+            if (!hasCheckInA && !hasCheckInB) return 0; 
+
+            if (a.dateId !== b.dateId) {
+                return b.dateId.localeCompare(a.dateId); 
+            }
+            
+            const timeA = getTimeValue(a.checkIn);
+            const timeB = getTimeValue(b.checkIn);
+            return timeB - timeA; 
+        });
 
         return records;
       }, [attendanceRecords, filterToday, filterIncomplete, filterIncompleteNotToday, filterScannedInOnly, filterCompleteScan, filterUserShift, schedules]);
